@@ -1,0 +1,41 @@
+name: Build Android APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot and Android export templates
+        shell: bash
+        run: |
+          set -euxo pipefail
+          GODOT_VERSION=4.4.1
+          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q "Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          sudo install "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q "Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          mv templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+      - name: Import assets
+        run: godot --headless --path . --editor --quit
+      - name: Create debug APK
+        run: |
+          mkdir -p build
+          godot --headless --path . --export-debug Android build/Generic-RPG-3D.apk
+          test -s build/Generic-RPG-3D.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Generic-RPG-3D-Android-APK
+          path: build/Generic-RPG-3D.apk
+          if-no-files-found: error
+
+
+
+
+
+
+
