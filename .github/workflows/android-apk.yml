@@ -1,3 +1,4 @@
+
 name: Build Android APK
 
 on:
@@ -24,28 +25,76 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
-      - name: Install Android packages
-        shell: bash
-        run: |
-          set -e
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
-          yes | sdkmanager --licenses || true
-
       - name: Install Godot and export templates
         shell: bash
         run: |
-          set -euxo pipefail
-          GODOT_VERSION=4.4.1
+          set -euo pipefail
+          VERSION="4.4.1"
+          BASE="https://github.com/godotengine/godot/releases/download/${VERSION}-stable"
 
-          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          wget -q "${BASE}/Godot_v${VERSION}-stable_linux.x86_64.zip" -O godot.zip
+          unzip -q godot.zip
+          sudo install "Godot_v${VERSION}-stable_linux.x86_64" /usr/local/bin/godot
 
-          unzip -q "Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          wget -q "${BASE}/Godot_v${VERSION}-stable_export_templates.tpz" -O templates.tpz
+          unzip -q templates.tpz
 
-          sudo install "Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          DEST="$HOME/.local/share/godot/export_templates/${VERSION}.stable"
+          mkdir -p "$DEST"
+          cp -a templates/. "$DEST/"
 
-          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          godot --version
 
-          wget -q "https
+      - name: Create debug keystore
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair \
+            -keystore "$HOME/.android/debug.keystore" \
+            -alias androiddebugkey \
+            -storepass android \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Configure Godot
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.config/godot"
+
+          SDK_PATH="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+
+          cat > "$HOME/.config/godot/editor_settings-4.4.tres" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$SDK_PATH"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+
+      - name: Import assets
+        shell: bash
+        run: |
+          godot --headless --path . --editor --quit
+
+      - name: Create debug APK
+        shell: bash
+        run: |
+          mkdir -p build
+          godot --headless --verbose --path . \
+            --export-debug "Android" \
+            build/Generic-RPG-3D.apk
+
+          test -s build/Generic-RPG-3D.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Generic-RPG-3D-Android-APK
+          path: build/Generic-RPG-3D.apk
+          if-no-files-found: error
