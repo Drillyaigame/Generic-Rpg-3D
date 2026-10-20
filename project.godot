@@ -1,23 +1,26 @@
+
 config_version=5
 
 [application]
+
 config/name="Generic RPG 3D"
 run/main_scene="res://scenes/world.tscn"
 
 [display]
+
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/handheld/orientation=1
 window/stretch/mode="canvas_items"
-window/handheld/orientation=1
-window/stretch/mode="canvas_items"
 
 [rendering]
+
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/default_filters/use_nearest_mipmap_filter=false
 
 [input]
+
 move_forward={"deadzone":0.2,"events":[Object(InputEventKey,"physical_keycode":87),Object(InputEventKey,"physical_keycode":16777232)]}
 move_back={"deadzone":0.2,"events":[Object(InputEventKey,"physical_keycode":83),Object(InputEventKey,"physical_keycode":16777234)]}
 move_left={"deadzone":0.2,"events":[Object(InputEventKey,"physical_keycode":65),Object(InputEventKey,"physical_keycode":16777231)]}
