@@ -21,15 +21,37 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Configure Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SDK_PATH="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+
+          echo "ANDROID_HOME=$SDK_PATH" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_PATH" >> "$GITHUB_ENV"
+
+          test -d "$SDK_PATH"
+
+          echo "SDK location: $SDK_PATH"
+
+          SDKMANAGER="$SDK_PATH/cmdline-tools/latest/bin/sdkmanager"
+
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_PATH/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          fi
+
+          test -n "$SDKMANAGER"
+
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
 
       - name: Install Android packages
         shell: bash
         run: |
           set -euo pipefail
 
-          sdkmanager \
+          "$SDKMANAGER" \
+            --sdk_root="$ANDROID_HOME" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
@@ -63,10 +85,9 @@ jobs:
           mkdir -p "$DEST"
           cp -a templates/. "$DEST/"
 
-          godot --version
-
           test -f "$DEST/android_debug.apk"
-          test -f "$DEST/android_release.apk"
+
+          godot --version
 
       - name: Create debug keystore
         shell: bash
@@ -90,48 +111,43 @@ jobs:
         run: |
           set -euo pipefail
 
-          SDK_PATH="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-
-          echo "Android SDK: $SDK_PATH"
-          echo "Java SDK: $JAVA_HOME"
-
-          test -d "$SDK_PATH"
-          test -d "$JAVA_HOME"
-          test -f "$HOME/.android/debug.keystore"
-
           mkdir -p "$HOME/.config/godot"
 
           cat > "$HOME/.config/godot/editor_settings-4.4.tres" <<EOF
           [gd_resource type="EditorSettings" format=3]
 
           [resource]
-          export/android/android_sdk_path = "$SDK_PATH"
+          export/android/android_sdk_path = "$ANDROID_HOME"
           export/android/java_sdk_path = "$JAVA_HOME"
           export/android/debug_keystore = "$HOME/.android/debug.keystore"
           export/android/debug_keystore_user = "androiddebugkey"
           export/android/debug_keystore_pass = "android"
           EOF
 
+          echo "Godot configuration created."
+
       - name: Check Android configuration
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "=== Java ==="
+          echo "=== JAVA ==="
           java -version
 
-          echo "=== Android SDK ==="
+          echo "=== ANDROID SDK ==="
           echo "$ANDROID_HOME"
 
-          echo "=== Build tools ==="
-          ls -la "$ANDROID_HOME/build-tools/35.0.0"
+          echo "=== SDK PACKAGES ==="
+          "$SDKMANAGER" \
+            --sdk_root="$ANDROID_HOME" \
+            --list_installed
 
-          echo "=== Debug keystore ==="
+          echo "=== KEYSTORE ==="
           keytool -list \
             -keystore "$HOME/.android/debug.keystore" \
             -storepass android
 
-          echo "=== Export preset ==="
+          echo "=== EXPORT PRESET ==="
           cat export_presets.cfg
 
       - name: Import assets
@@ -148,7 +164,7 @@ jobs:
           if grep -E \
             "SCRIPT ERROR|Parse Error|Failed to load script" \
             import.log; then
-            echo "Godot script errors detected."
+            echo "Script errors detected."
             exit 1
           fi
 
@@ -158,8 +174,6 @@ jobs:
           set -uo pipefail
 
           mkdir -p build
-
-          echo "Starting Android export..."
 
           godot --headless \
             --verbose \
@@ -173,9 +187,9 @@ jobs:
           echo "========== EXPORT LOG =========="
           cat export.log
 
-          echo "========== ERROR SUMMARY =========="
+          echo "========== ERRORS =========="
           grep -iE \
-            "error|warning|invalid|missing|failed|keystore|sdk|template" \
+            "error|warning|invalid|missing|failed|sdk|keystore|template" \
             export.log || true
 
           if [ "$STATUS" -ne 0 ]; then
@@ -183,10 +197,7 @@ jobs:
             exit "$STATUS"
           fi
 
-          if [ ! -s build/Generic-RPG-3D.apk ]; then
-            echo "APK file was not created."
-            exit 1
-          fi
+          test -s build/Generic-RPG-3D.apk
 
           echo "APK created successfully!"
           ls -lh build/Generic-RPG-3D.apk
