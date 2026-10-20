@@ -1,10 +1,10 @@
-
 name: Build Android APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   android:
@@ -25,10 +25,21 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
+      - name: Install Android packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
       - name: Install Godot and export templates
         shell: bash
         run: |
           set -euo pipefail
+
           VERSION="4.4.1"
           BASE="https://github.com/godotengine/godot/releases/download/${VERSION}-stable"
 
@@ -45,10 +56,16 @@ jobs:
 
           godot --version
 
+          test -f "$DEST/android_debug.apk"
+          test -f "$DEST/android_release.apk"
+
       - name: Create debug keystore
         shell: bash
         run: |
+          set -euo pipefail
+
           mkdir -p "$HOME/.android"
+
           keytool -genkeypair \
             -keystore "$HOME/.android/debug.keystore" \
             -alias androiddebugkey \
@@ -62,9 +79,17 @@ jobs:
       - name: Configure Godot
         shell: bash
         run: |
-          mkdir -p "$HOME/.config/godot"
+          set -euo pipefail
 
           SDK_PATH="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+
+          echo "Android SDK: $SDK_PATH"
+          echo "Java SDK: $JAVA_HOME"
+
+          test -d "$SDK_PATH"
+          test -d "$JAVA_HOME"
+
+          mkdir -p "$HOME/.config/godot"
 
           cat > "$HOME/.config/godot/editor_settings-4.4.tres" <<EOF
           [gd_resource type="EditorSettings" format=3]
@@ -77,20 +102,55 @@ jobs:
           export/android/debug_keystore_pass = "android"
           EOF
 
+      - name: Check Android configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== Java ==="
+          java -version
+
+          echo "=== Android SDK ==="
+          echo "${ANDROID_HOME:-not set}"
+
+          echo "=== Build tools ==="
+          ls -la "$ANDROID_HOME/build-tools/35.0.0"
+
+          echo "=== Debug keystore ==="
+          keytool -list \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android
+
+          echo "=== Godot settings ==="
+          cat "$HOME/.config/godot/editor_settings-4.4.tres"
+
+          echo "=== Export preset ==="
+          cat export_presets.cfg
+
       - name: Import assets
         shell: bash
         run: |
+          set -euo pipefail
+
           godot --headless --path . --editor --quit
 
       - name: Create debug APK
         shell: bash
         run: |
+          set -euo pipefail
+
           mkdir -p build
-          godot --headless --verbose --path . \
+
+          godot --headless \
+            --verbose \
+            --path . \
             --export-debug "Android" \
             build/Generic-RPG-3D.apk
 
           test -s build/Generic-RPG-3D.apk
+
+          echo "APK created successfully!"
+          ls -lh build/Generic-RPG-3D.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
