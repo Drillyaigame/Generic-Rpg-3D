@@ -26,22 +26,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          SDK_PATH="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDK_PATH="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
 
           echo "ANDROID_HOME=$SDK_PATH" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_PATH" >> "$GITHUB_ENV"
 
           test -d "$SDK_PATH"
 
-          echo "SDK location: $SDK_PATH"
-
           SDKMANAGER="$SDK_PATH/cmdline-tools/latest/bin/sdkmanager"
 
-          if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "$SDK_PATH/cmdline-tools" -name sdkmanager -type f | head -n 1)"
-          fi
-
-          test -n "$SDKMANAGER"
+          test -x "$SDKMANAGER"
 
           echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
 
@@ -124,30 +118,28 @@ jobs:
           export/android/debug_keystore_pass = "android"
           EOF
 
-          echo "Godot configuration created."
-
-      - name: Check Android configuration
+      - name: Validate Android configuration
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "=== JAVA ==="
+          test -d "$ANDROID_HOME"
+          test -d "$JAVA_HOME"
+          test -f "$HOME/.android/debug.keystore"
+          test -f export_presets.cfg
+
+          echo "=== Java ==="
           java -version
 
-          echo "=== ANDROID SDK ==="
-          echo "$ANDROID_HOME"
-
-          echo "=== SDK PACKAGES ==="
+          echo "=== Android SDK ==="
           "$SDKMANAGER" \
             --sdk_root="$ANDROID_HOME" \
             --list_installed
 
-          echo "=== KEYSTORE ==="
-          keytool -list \
-            -keystore "$HOME/.android/debug.keystore" \
-            -storepass android
+          echo "=== Godot settings ==="
+          cat "$HOME/.config/godot/editor_settings-4.4.tres"
 
-          echo "=== EXPORT PRESET ==="
+          echo "=== Export preset ==="
           cat export_presets.cfg
 
       - name: Import assets
@@ -164,7 +156,6 @@ jobs:
           if grep -E \
             "SCRIPT ERROR|Parse Error|Failed to load script" \
             import.log; then
-            echo "Script errors detected."
             exit 1
           fi
 
@@ -176,8 +167,8 @@ jobs:
           mkdir -p build
 
           godot --headless \
-            --verbose \
             --path . \
+            --editor \
             --export-debug "Android" \
             build/Generic-RPG-3D.apk \
             > export.log 2>&1
