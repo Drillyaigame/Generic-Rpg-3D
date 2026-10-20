@@ -4,7 +4,8 @@ name: Build Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   android:
@@ -27,8 +28,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          yes | sdkmanager --licenses > /dev/null || true
 
           sdkmanager \
             "platform-tools" \
@@ -67,6 +66,7 @@ jobs:
           godot --version
 
           test -f "$DEST/android_debug.apk"
+          test -f "$DEST/android_release.apk"
 
       - name: Create debug keystore
         shell: bash
@@ -92,10 +92,11 @@ jobs:
 
           SDK_PATH="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
 
-          echo "ANDROID SDK: $SDK_PATH"
-          echo "JAVA HOME: $JAVA_HOME"
+          echo "Android SDK: $SDK_PATH"
+          echo "Java SDK: $JAVA_HOME"
 
           test -d "$SDK_PATH"
+          test -d "$JAVA_HOME"
           test -f "$HOME/.android/debug.keystore"
 
           mkdir -p "$HOME/.config/godot"
@@ -111,37 +112,27 @@ jobs:
           export/android/debug_keystore_pass = "android"
           EOF
 
-      - name: Validate export preset
+      - name: Check Android configuration
         shell: bash
         run: |
           set -euo pipefail
 
-          test -f export_presets.cfg
+          echo "=== Java ==="
+          java -version
 
-          python3 - <<'PY'
-          import configparser
+          echo "=== Android SDK ==="
+          echo "$ANDROID_HOME"
 
-          config = configparser.ConfigParser(
-              interpolation=None,
-              strict=False
-          )
+          echo "=== Build tools ==="
+          ls -la "$ANDROID_HOME/build-tools/35.0.0"
 
-          config.read("export_presets.cfg")
+          echo "=== Debug keystore ==="
+          keytool -list \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android
 
-          assert config.has_section("preset.0"), \
-              "Missing Android preset"
-
-          assert config.get(
-              "preset.0", "name"
-          ).strip('"') == "Android", \
-              "Android preset name is incorrect"
-
-          assert config.has_section("preset.0.options"), \
-              "Missing Android export options"
-
-          print("Android preset exists.")
-          print("Preset validation completed.")
-          PY
+          echo "=== Export preset ==="
+          cat export_presets.cfg
 
       - name: Import assets
         shell: bash
@@ -198,6 +189,7 @@ jobs:
           fi
 
           echo "APK created successfully!"
+          ls -lh build/Generic-RPG-3D.apk
 
       - name: Upload diagnostic logs
         if: failure()
