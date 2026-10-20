@@ -1,10 +1,10 @@
+
 name: Build Android APK
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   android:
@@ -22,14 +22,14 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
       - name: Install Android packages
         shell: bash
         run: |
           set -euo pipefail
+
           yes | sdkmanager --licenses > /dev/null || true
+
           sdkmanager \
             "platform-tools" \
             "platforms;android-35" \
@@ -43,21 +43,30 @@ jobs:
           VERSION="4.4.1"
           BASE="https://github.com/godotengine/godot/releases/download/${VERSION}-stable"
 
-          wget -q "${BASE}/Godot_v${VERSION}-stable_linux.x86_64.zip" -O godot.zip
-          unzip -q godot.zip
-          sudo install "Godot_v${VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          wget -q \
+            "${BASE}/Godot_v${VERSION}-stable_linux.x86_64.zip" \
+            -O godot.zip
 
-          wget -q "${BASE}/Godot_v${VERSION}-stable_export_templates.tpz" -O templates.tpz
+          unzip -q godot.zip
+
+          sudo install \
+            "Godot_v${VERSION}-stable_linux.x86_64" \
+            /usr/local/bin/godot
+
+          wget -q \
+            "${BASE}/Godot_v${VERSION}-stable_export_templates.tpz" \
+            -O templates.tpz
+
           unzip -q templates.tpz
 
           DEST="$HOME/.local/share/godot/export_templates/${VERSION}.stable"
+
           mkdir -p "$DEST"
           cp -a templates/. "$DEST/"
 
           godot --version
 
           test -f "$DEST/android_debug.apk"
-          test -f "$DEST/android_release.apk"
 
       - name: Create debug keystore
         shell: bash
@@ -83,11 +92,11 @@ jobs:
 
           SDK_PATH="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
 
-          echo "Android SDK: $SDK_PATH"
-          echo "Java SDK: $JAVA_HOME"
+          echo "ANDROID SDK: $SDK_PATH"
+          echo "JAVA HOME: $JAVA_HOME"
 
           test -d "$SDK_PATH"
-          test -d "$JAVA_HOME"
+          test -f "$HOME/.android/debug.keystore"
 
           mkdir -p "$HOME/.config/godot"
 
@@ -102,55 +111,103 @@ jobs:
           export/android/debug_keystore_pass = "android"
           EOF
 
-      - name: Check Android configuration
+      - name: Validate export preset
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "=== Java ==="
-          java -version
+          test -f export_presets.cfg
 
-          echo "=== Android SDK ==="
-          echo "${ANDROID_HOME:-not set}"
+          python3 - <<'PY'
+          import configparser
 
-          echo "=== Build tools ==="
-          ls -la "$ANDROID_HOME/build-tools/35.0.0"
+          config = configparser.ConfigParser(
+              interpolation=None,
+              strict=False
+          )
 
-          echo "=== Debug keystore ==="
-          keytool -list \
-            -keystore "$HOME/.android/debug.keystore" \
-            -storepass android
+          config.read("export_presets.cfg")
 
-          echo "=== Godot settings ==="
-          cat "$HOME/.config/godot/editor_settings-4.4.tres"
+          assert config.has_section("preset.0"), \
+              "Missing Android preset"
 
-          echo "=== Export preset ==="
-          cat export_presets.cfg
+          assert config.get(
+              "preset.0", "name"
+          ).strip('"') == "Android", \
+              "Android preset name is incorrect"
+
+          assert config.has_section("preset.0.options"), \
+              "Missing Android export options"
+
+          print("Android preset exists.")
+          print("Preset validation completed.")
+          PY
 
       - name: Import assets
         shell: bash
         run: |
           set -euo pipefail
 
-          godot --headless --path . --editor --quit
+          godot --headless \
+            --path . \
+            --editor \
+            --quit \
+            2>&1 | tee import.log
+
+          if grep -E \
+            "SCRIPT ERROR|Parse Error|Failed to load script" \
+            import.log; then
+            echo "Godot script errors detected."
+            exit 1
+          fi
 
       - name: Create debug APK
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
           mkdir -p build
+
+          echo "Starting Android export..."
 
           godot --headless \
             --verbose \
             --path . \
             --export-debug "Android" \
-            build/Generic-RPG-3D.apk
+            build/Generic-RPG-3D.apk \
+            > export.log 2>&1
 
-          test -s build/Generic-RPG-3D.apk
+          STATUS=$?
+
+          echo "========== EXPORT LOG =========="
+          cat export.log
+
+          echo "========== ERROR SUMMARY =========="
+          grep -iE \
+            "error|warning|invalid|missing|failed|keystore|sdk|template" \
+            export.log || true
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "Android export failed."
+            exit "$STATUS"
+          fi
+
+          if [ ! -s build/Generic-RPG-3D.apk ]; then
+            echo "APK file was not created."
+            exit 1
+          fi
 
           echo "APK created successfully!"
-          ls -lh build/Generic-RPG-3D.apk
+
+      - name: Upload diagnostic logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-Build-Diagnostics
+          path: |
+            import.log
+            export.log
+          if-no-files-found: ignore
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
